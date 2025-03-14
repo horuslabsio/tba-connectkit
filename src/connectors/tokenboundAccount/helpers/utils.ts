@@ -41,10 +41,11 @@ export default async function hasAccountOwnership(
       : MAINNET_NODE_URL
 
   const tbaClassHash = await getTokenBoundClassHash(provider, tokenboundAddress)
-
   if (!tbaClassHash) return false
+
   const network =
     num.toHex(chainId) === SEPOLIA_CHAIN_ID ? "sepolia" : "mainnet"
+    
   const options = {
     walletClient: { address: "", privateKey: "" },
     chain_id: network === "sepolia" ? TBAChainID.sepolia : TBAChainID.main,
