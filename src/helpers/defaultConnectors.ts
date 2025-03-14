@@ -10,8 +10,6 @@ export const defaultConnectors = ({
   tokenboundOptions: TokenboundConnectorOptions
 }): StarknetkitConnector[] => {
   const defaultConnectors: StarknetkitConnector[] = []
-
   defaultConnectors.push(new TokenboundConnector(tokenboundOptions))
-
   return defaultConnectors
 }
