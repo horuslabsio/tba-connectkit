@@ -8,18 +8,30 @@ import {
   setStarknetLastConnectedWallet,
 } from "./helpers/lastConnected"
 import { mapModalWallets } from "./helpers/mapModalWallets"
+
 import Modal from "./modal/Modal.svelte"
+import ColonizModal from "./modal/ColonizModal.svelte"
+
 import css from "./theme.css?inline"
 import type {
+  ColonizResult,
   ConnectOptions,
   ConnectOptionsWithConnectors,
+  ConnectWithColonizOptions,
   ModalResult,
   ModalWallet,
 } from "./types/modal"
 import { TBAStarknetWindowObject } from "./connectors/tokenboundAccount/types/connector"
 import { ConnectorNotConnectedError, NotTokenboundAccountOwner } from "./errors"
 import hasAccountOwnership from "./connectors/tokenboundAccount/helpers/utils"
-import { RpcProvider } from "starknet"
+import { AccountInterface, RpcProvider } from "starknet"
+import Controller from "@cartridge/controller"
+import {
+  clearController,
+  getController,
+  handleAuth,
+  setController,
+} from "./helpers/Coloniz"
 
 let selectedConnector: StarknetkitConnector | null = null
 
@@ -97,7 +109,6 @@ export const connect = async ({
               } = selectedConnector.wallet
 
               if (parentAccount) {
-                
                 const isOwnerOfTBA = await hasAccountOwnership(
                   chainId,
                   selectedAddress,
@@ -138,10 +149,82 @@ export const connect = async ({
   }
 }
 
+export const connectWithColoniz = async (
+  options?: ConnectWithColonizOptions,
+): Promise<ColonizResult> => {
+  const { chainId } = options ?? {}
+  const getColonizTarget = (): ShadowRoot => {
+    const modalId = "starknetkit-modal-container"
+    const existingElement = document.getElementById(modalId)
+    if (existingElement) {
+      if (existingElement.shadowRoot) {
+        return existingElement.shadowRoot
+      }
+      existingElement.remove()
+    }
+
+    const element = document.createElement("div")
+    element.id = modalId
+    document.body.appendChild(element)
+    const target = element.attachShadow({ mode: "open" })
+    target.innerHTML = `<style>${css}</style>`
+    return target
+  }
+  const shadowTarget = getColonizTarget()
+  return new Promise((resolve, reject) => {
+    const modal = new ColonizModal({
+      target: shadowTarget,
+      props: {
+        onConnect: async (
+          account: AccountInterface,
+          controller: Controller,
+        ) => {
+          try {
+            if (account) {
+              if (!account || !account.address) return
+              setController(controller)
+              const { access_token, profile } =
+                (await handleAuth(account, account.address)) || {}
+              resolve({
+                account,
+                isConnected: true,
+                access_token: access_token ?? "",
+                profile: profile ?? null,
+              })
+            } else {
+              reject(new Error("Authentication failed"))
+            }
+          } catch (err) {
+            throw err
+          } finally {
+            modal.$destroy()
+          }
+        },
+        chainId,
+      },
+    })
+  })
+}
+
+export const disconnectColoniz = async (): Promise<void> => {
+  const controller = getController()
+  if (!controller) {
+    console.warn("Controller is not connected.")
+    return
+  }
+
+  try {
+    await controller.disconnect()
+    clearController()
+    console.log("Disconnected from Coloniz.")
+  } catch (err) {
+    console.error("Coloniz disconnect failed:", err)
+  }
+}
+
 // Should be used after a sucessful connect
 export const getSelectedConnectorWallet = () =>
   selectedConnector ? selectedConnector.wallet : null
-
 export const disconnect = async (options: DisconnectOptions = {}) => {
   removeStarknetLastConnectedWallet()
   if (selectedConnector) {
@@ -159,7 +242,6 @@ export type {
   TBAStarknetWindowObject,
   defaultConnectors as starknetkitDefaultConnectors,
   ConnectOptions,
+  ColonizResult,
   ConnectOptionsWithConnectors,
 }
-
-export type * from "./types/modal"

@@ -207,7 +207,7 @@ export class TokenboundConnector extends Connector {
         ? BigInt(getStarknetChainId(chainId))
         : BigInt(getStarknetChainId(DEFAULT_CHAIN_ID))
       let _wallet =
-        (await openTokenboundModal(hexChainId.toString(), policies)) ?? null
+        (await openTokenboundModal(hexChainId.toString(), [])) ?? null
       if (!_wallet) return
       const { starknetWindowObject, controller } = _wallet
       if (starknetWindowObject) {
