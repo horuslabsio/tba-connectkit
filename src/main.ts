@@ -8,18 +8,31 @@ import {
   setStarknetLastConnectedWallet,
 } from "./helpers/lastConnected"
 import { mapModalWallets } from "./helpers/mapModalWallets"
+
 import Modal from "./modal/Modal.svelte"
+import ColonizModal from "./modal/ColonizModal.svelte"
+
 import css from "./theme.css?inline"
 import type {
+  ColonizResult,
   ConnectOptions,
   ConnectOptionsWithConnectors,
+  ConnectWithColonizOptions,
   ModalResult,
   ModalWallet,
 } from "./types/modal"
 import { TBAStarknetWindowObject } from "./connectors/tokenboundAccount/types/connector"
 import { ConnectorNotConnectedError, NotTokenboundAccountOwner } from "./errors"
 import hasAccountOwnership from "./connectors/tokenboundAccount/helpers/utils"
-import { RpcProvider } from "starknet"
+import { AccountInterface, RpcProvider } from "starknet"
+import Controller from "@cartridge/controller"
+import {
+  clearController,
+  getController,
+  handleAuth,
+  setController,
+} from "./helpers/Coloniz"
+
 let selectedConnector: StarknetkitConnector | null = null
 
 export const connect = async ({
@@ -41,59 +54,8 @@ export const connect = async ({
         })
       : connectors
 
-  const lastWalletId = localStorage.getItem("starknetLastConnectedWallet")
-  if (modalMode === "neverAsk") {
-    try {
-      const connector =
-        availableConnectors.find((c) => c.id === lastWalletId) ?? null
-
-      let connectorData: ConnectorData | null = null
-
-      if (connector && resultType === "wallet") {
-        connectorData = await connector.connect()
-      }
-
-      return {
-        connector,
-        wallet: connector?.wallet ?? null,
-        connectorData,
-      }
-    } catch (error) {
-      removeStarknetLastConnectedWallet()
-      throw new Error(error as any)
-    }
-  }
   const installedWallets = await sn.getAvailableWallets(restOptions)
   // we return/display wallet options once per first-dapp (ever) connect
-  if (modalMode === "canAsk") {
-    const authorizedWallets = await sn.getAuthorizedWallets(restOptions)
-
-    const wallet =
-      (authorizedWallets.find((w) => w.id === lastWalletId) ??
-      installedWallets.length === 1)
-        ? installedWallets[0]
-        : undefined
-
-    if (wallet) {
-      const connector = availableConnectors.find((c) => c.id === lastWalletId)
-
-      let connectorData: ConnectorData | null = null
-
-      if (resultType === "wallet") {
-        connectorData = (await connector?.connect()) ?? null
-      }
-
-      if (connector) {
-        selectedConnector = connector
-      }
-
-      return {
-        connector: selectedConnector,
-        connectorData,
-        wallet: selectedConnector?.wallet ?? null,
-      }
-    }
-  }
 
   const modalWallets: ModalWallet[] = mapModalWallets({
     availableConnectors,
@@ -126,63 +88,143 @@ export const connect = async ({
     return target
   }
 
-  return new Promise((resolve, reject) => {
-    const modal = new Modal({
-      target: getTarget(),
-      props: {
-        dappName,
-        callback: async (connector: StarknetkitConnector | null) => {
-          try {
-            selectedConnector = connector
-            if (!selectedConnector) throw new ConnectorNotConnectedError()
-            const connectorData = (await connector?.connect()) ?? null
-            if (!selectedConnector.wallet) return
-
-            const {
-              selectedAddress,
-              parentAccount,
-              chainId,
-              parentAccountId,
-              provider,
-            } = selectedConnector.wallet
-
-            if (parentAccount) {
-              const isOwnerOfTBA = await hasAccountOwnership(
-                chainId,
+  if (modalMode == "alwaysAsk") {
+    return new Promise((resolve, reject) => {
+      const modal = new Modal({
+        target: getTarget(),
+        props: {
+          dappName,
+          callback: async (connector: StarknetkitConnector | null) => {
+            try {
+              selectedConnector = connector
+              if (!selectedConnector) throw new ConnectorNotConnectedError()
+              const connectorData = (await connector?.connect()) ?? null
+              if (!selectedConnector.wallet) return
+              const {
                 selectedAddress,
-                provider as RpcProvider,
                 parentAccount,
-              )
-              if (!isOwnerOfTBA) throw new NotTokenboundAccountOwner()
-            }
+                chainId,
+                parentAccountId,
+                provider,
+              } = selectedConnector.wallet
 
-            const wallet =
-              resultType === "wallet" ? selectedConnector.wallet : null
-            if (wallet) {
-              setStarknetLastConnectedWallet(parentAccountId)
+              if (parentAccount) {
+                const isOwnerOfTBA = await hasAccountOwnership(
+                  chainId,
+                  selectedAddress,
+                  provider as RpcProvider,
+                  parentAccount,
+                )
+                if (!isOwnerOfTBA) throw new NotTokenboundAccountOwner()
+              }
+
+              const wallet =
+                resultType === "wallet" ? selectedConnector.wallet : null
+              if (wallet) {
+                setStarknetLastConnectedWallet(parentAccountId)
+              }
+
+              resolve({
+                connector,
+                connectorData,
+                wallet,
+              })
+            } catch (error) {
+              reject(error)
+            } finally {
+              setTimeout(() => modal.$destroy())
             }
-            resolve({
-              connector,
-              connectorData,
-              wallet,
-            })
-          } catch (error) {
-            reject(error)
+          },
+          theme: modalTheme === "system" ? null : (modalTheme ?? null),
+          modalWallets,
+        },
+      })
+    })
+  } else {
+    return {
+      connector: null,
+      connectorData: null,
+      wallet: null,
+    }
+  }
+}
+
+export const connectWithColoniz = async (
+  options?: ConnectWithColonizOptions,
+): Promise<ColonizResult> => {
+  const { chainId } = options ?? {}
+  const getColonizTarget = (): ShadowRoot => {
+    const modalId = "starknetkit-modal-container"
+    const existingElement = document.getElementById(modalId)
+    if (existingElement) {
+      if (existingElement.shadowRoot) {
+        return existingElement.shadowRoot
+      }
+      existingElement.remove()
+    }
+
+    const element = document.createElement("div")
+    element.id = modalId
+    document.body.appendChild(element)
+    const target = element.attachShadow({ mode: "open" })
+    target.innerHTML = `<style>${css}</style>`
+    return target
+  }
+  const shadowTarget = getColonizTarget()
+  return new Promise((resolve, reject) => {
+    const modal = new ColonizModal({
+      target: shadowTarget,
+      props: {
+        onConnect: async (
+          account: AccountInterface,
+          controller: Controller,
+        ) => {
+          try {
+            if (account) {
+              if (!account || !account.address) return
+              setController(controller)
+              const { access_token, profile } =
+                (await handleAuth(account, account.address)) || {}
+              resolve({
+                account,
+                isConnected: true,
+                access_token: access_token ?? "",
+                profile: profile ?? null,
+              })
+            } else {
+              reject(new Error("Authentication failed"))
+            }
+          } catch (err) {
+            throw err
           } finally {
-            setTimeout(() => modal.$destroy())
+            modal.$destroy()
           }
         },
-        theme: modalTheme === "system" ? null : (modalTheme ?? null),
-        modalWallets,
+        chainId,
       },
     })
   })
 }
 
+export const disconnectColoniz = async (): Promise<void> => {
+  const controller = getController()
+  if (!controller) {
+    console.warn("Controller is not connected.")
+    return
+  }
+
+  try {
+    await controller.disconnect()
+    clearController()
+    console.log("Disconnected from Coloniz.")
+  } catch (err) {
+    console.error("Coloniz disconnect failed:", err)
+  }
+}
+
 // Should be used after a sucessful connect
 export const getSelectedConnectorWallet = () =>
   selectedConnector ? selectedConnector.wallet : null
-
 export const disconnect = async (options: DisconnectOptions = {}) => {
   removeStarknetLastConnectedWallet()
   if (selectedConnector) {
@@ -200,7 +242,6 @@ export type {
   TBAStarknetWindowObject,
   defaultConnectors as starknetkitDefaultConnectors,
   ConnectOptions,
+  ColonizResult,
   ConnectOptionsWithConnectors,
 }
-
-export type * from "./types/modal"

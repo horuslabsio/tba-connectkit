@@ -6,6 +6,8 @@ import type {
 } from "../connectors/connector"
 import { TokenboundConnectorOptions } from "src/connectors"
 import { TBAStarknetWindowObject } from "src/main"
+import { AccountInterface, constants } from "starknet"
+
 
 export type StoreVersion = "chrome" | "firefox" | "edge"
 
@@ -26,6 +28,10 @@ export interface ConnectOptionsWithConnectors
   connectors?: StarknetkitConnector[]
 }
 
+export interface ConnectWithColonizOptions {
+  chainId: constants.StarknetChainId
+}
+
 export type ModalWallet = {
   name: string
   id: string
@@ -40,4 +46,20 @@ export type ModalResult = {
   connector: StarknetkitConnector | null
   connectorData: ConnectorData | null
   wallet?: TBAStarknetWindowObject | null
+}
+
+export type ColonizResult = {
+  isConnected: boolean;
+  access_token: string
+  profile: ColonizProfile | null
+  account: AccountInterface
+}
+
+export type ColonizProfile = {
+  id: string
+  displayName: string
+  handle: string
+  profileAddress: `0x${string}`
+  bio: string
+  email: string
 }

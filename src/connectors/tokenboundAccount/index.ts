@@ -1,7 +1,10 @@
 import {
+  Account,
   AccountInterface,
+  num,
   ProviderInterface,
   ProviderOptions,
+  RpcProvider,
   WalletAccount,
 } from "starknet"
 
@@ -28,6 +31,7 @@ import { openTokenboundModal } from "./helpers/openTokenboundwallet"
 import { TBAStarknetWindowObject } from "./types/connector"
 import Controller from "@cartridge/controller"
 import { AccountChangeEventHandler } from "@starknet-io/get-starknet-core"
+import { getSWOWithAccount } from "./connectWithAccount/getStarknetWindowObject"
 
 interface PolicyOption {
   target: string
@@ -36,8 +40,11 @@ interface PolicyOption {
 }
 
 export interface TokenboundConnectorOptions {
+  id: string
   chainId: string
-  policies?: PolicyOption[]
+  tbaAddress?: `0x${string}`
+  account?: AccountInterface
+  policies?: PolicyOption[] // if account is catridge
 }
 
 export class TokenboundConnector extends Connector {
@@ -170,21 +177,43 @@ export class TokenboundConnector extends Connector {
   }
 
   private async ensureWallet(): Promise<void> {
-    const hexChainId = this._options
-      ? BigInt(getStarknetChainId(this._options.chainId))
-      : BigInt(getStarknetChainId(DEFAULT_CHAIN_ID))
+    const { id, chainId, account, policies, tbaAddress } = this._options
 
-    let _wallet =
-      (await openTokenboundModal(
-        hexChainId.toString(),
-        this._options.policies,
-      )) ?? null
+    const formattedChainId = BigInt(getStarknetChainId(chainId))
 
-    if (!_wallet) return
-    const { starknetWindowObject, controller } = _wallet
-    if (starknetWindowObject) {
+    const address = tbaAddress ?? "0x"
+
+    if (account) {
+
+      const provider = new RpcProvider({
+        nodeUrl: account?.channel.nodeUrl,
+      })
+
+
+      
+      const formmatedAccount = new Account(provider, account.address, account.signer)
+
+      const starknetWindowObject = await getSWOWithAccount({
+        address,
+        provider,
+        account: formmatedAccount,
+        chainId: num.toHex(formattedChainId),
+        parentAccountId: id,
+      })
+
       this._wallet = starknetWindowObject
-      this._controller = controller ?? null
+    } else {
+      const hexChainId = chainId
+        ? BigInt(getStarknetChainId(chainId))
+        : BigInt(getStarknetChainId(DEFAULT_CHAIN_ID))
+      let _wallet =
+        (await openTokenboundModal(hexChainId.toString(), [])) ?? null
+      if (!_wallet) return
+      const { starknetWindowObject, controller } = _wallet
+      if (starknetWindowObject) {
+        this._wallet = starknetWindowObject
+        this._controller = controller ?? null
+      }
     }
   }
 }

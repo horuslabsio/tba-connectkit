@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte"
    import TBALOGO from '../assets/tbaLogo.svelte'
-  import TbaLogo from "../assets/tbaLogo.svelte"
 
   export let callback: (options: Options) => Promise<void> = async () => {}
+    
   export let closeModal: () => void
   export let theme: "light" | "dark" | null = null
 

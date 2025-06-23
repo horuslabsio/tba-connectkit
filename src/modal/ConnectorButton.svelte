@@ -3,6 +3,7 @@
   import type { StarknetkitConnector } from "../connectors/connector"
 
   export let wallet: ModalWallet
+  
   export let theme: "light" | "dark" | null = null
   export let cb: (
     value: StarknetkitConnector | null,
